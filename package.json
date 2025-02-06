@@ -1,5 +1,5 @@
 {
-  "name": "context-cady",
+  "name": "context-caddy",
   "displayName": "Context Caddy",
   "description": "Select files from your workspace and copy a pre-prompt plus their content with multiple profiles and a context view.",
   "version": "0.0.5",

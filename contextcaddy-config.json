@@ -1,0 +1,13 @@
+{
+  "profiles": {
+    "default": {
+      "selectedFiles": {
+        "g:\\projects\\context-caddy\\package.json": true,
+        "g:\\projects\\context-caddy\\tsconfig.json": true,
+        "g:\\projects\\context-caddy\\src\\extension.ts": true
+      },
+      "prePrompt": ""
+    }
+  },
+  "activeProfile": "default"
+}
