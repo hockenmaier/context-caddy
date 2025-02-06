@@ -56,7 +56,6 @@ function saveConfig() {
   fs.writeFileSync(filePath, JSON.stringify(config, null, 2));
 }
 
-// Recursively get all file paths (files only) from a folder.
 function getAllFiles(dir: string): string[] {
   let results: string[] = [];
   const list = fs.readdirSync(dir);
@@ -72,7 +71,6 @@ function getAllFiles(dir: string): string[] {
   return results;
 }
 
-// Update the context key "allSelected" based on whether every file in the workspace is selected.
 async function updateAllSelectedContext(activeFiles: { [key: string]: boolean }) {
   let allFiles: string[] = [];
   if (vscode.workspace.workspaceFolders) {
@@ -80,7 +78,6 @@ async function updateAllSelectedContext(activeFiles: { [key: string]: boolean })
       allFiles = allFiles.concat(getAllFiles(folder.uri.fsPath));
     }
   }
-  // Consider only files that are accessible.
   const selectedCount = Object.keys(activeFiles).length;
   const allSelected = allFiles.length > 0 && selectedCount === allFiles.length;
   await vscode.commands.executeCommand('setContext', 'allSelected', allSelected);
@@ -95,15 +92,32 @@ export function activate(context: vscode.ExtensionContext) {
   const projectProvider = new ProjectContextProvider(activeProfile.selectedFiles);
   vscode.window.createTreeView('projectContext', { treeDataProvider: projectProvider });
   const selectedProvider = new SelectedFilesProvider(activeProfile.selectedFiles);
-  vscode.window.createTreeView('selectedFilesView', { treeDataProvider: selectedProvider });
+  const selectedTreeView = vscode.window.createTreeView('selectedFilesView', { treeDataProvider: selectedProvider });
 
   async function refreshViews() {
     projectProvider.refresh();
     selectedProvider.refresh();
     await updateAllSelectedContext(activeProfile.selectedFiles);
+    // Update token count in Files Selected view header (using message)
+    let text = prePrompt + "\n\n";
+    const selectedPaths = Object.keys(activeProfile.selectedFiles);
+    for (let filePath of selectedPaths) {
+      try {
+        if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+          let content = fs.readFileSync(filePath, 'utf8');
+          let workspaceFolder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(filePath));
+          let relPath = workspaceFolder ? path.relative(workspaceFolder.uri.fsPath, filePath) : filePath;
+          text += `----- ${relPath} -----\n${content}\n\n`;
+        }
+      } catch (error) {
+        console.error("Error reading file: " + filePath, error);
+      }
+    }
+    const approxTokens = Math.ceil(text.length / 4.3);
+    (selectedTreeView as any).message = `Approx tokens: ${approxTokens}`;
+
   }
 
-  // Toggle file selection: add if not present; remove if already selected.
   context.subscriptions.push(vscode.commands.registerCommand('extension.toggleSelection', (node: FileNode) => {
     const filePath = node.resourceUri.fsPath;
     if (activeProfile.selectedFiles[filePath]) {
@@ -116,7 +130,6 @@ export function activate(context: vscode.ExtensionContext) {
     refreshViews();
   }));
 
-  // Remove file from context.
   context.subscriptions.push(vscode.commands.registerCommand('extension.removeFromContext', (node: SelectedFileNode) => {
     const filePath = node.filePath;
     if (activeProfile.selectedFiles[filePath]) {
@@ -127,7 +140,6 @@ export function activate(context: vscode.ExtensionContext) {
     }
   }));
 
-  // Set pre-prompt.
   context.subscriptions.push(vscode.commands.registerCommand('extension.setPrePrompt', async () => {
     const input = await vscode.window.showInputBox({ prompt: "Enter Pre-Prompt", value: prePrompt });
     if (input !== undefined) {
@@ -139,7 +151,6 @@ export function activate(context: vscode.ExtensionContext) {
     }
   }));
 
-  // Copy context (pre-prompt plus selected files with paths relative to workspace root; token count shown only in notification).
   context.subscriptions.push(vscode.commands.registerCommand('extension.copyContext', async () => {
     let text = prePrompt + "\n\n";
     const selectedPaths = Object.keys(activeProfile.selectedFiles);
@@ -160,32 +171,25 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.window.showInformationMessage(`Context copied. Approx tokens: ${approxTokens}`);
   }));
 
-  // Toggle all: if not all files are selected, select all; otherwise, unselect all.
-  context.subscriptions.push(vscode.commands.registerCommand('extension.toggleAll', async () => {
-    let allFiles: string[] = [];
-    if (vscode.workspace.workspaceFolders) {
-      for (const folder of vscode.workspace.workspaceFolders) {
-        allFiles = allFiles.concat(getAllFiles(folder.uri.fsPath));
-      }
-    }
-    // Check if all files are already selected.
-    const currentlySelected = Object.keys(activeProfile.selectedFiles);
-    const allSelected = allFiles.length > 0 && currentlySelected.length === allFiles.length;
-    if (allSelected) {
-      // Unselect all.
-      activeProfile.selectedFiles = {};
-      vscode.window.showInformationMessage("Unselected all files.");
-    } else {
-      // Select all.
-      allFiles.forEach(file => activeProfile.selectedFiles[file] = true);
-      vscode.window.showInformationMessage("Selected all files.");
-    }
+  // New commands for folder-level selection
+  context.subscriptions.push(vscode.commands.registerCommand('extension.selectAllInFolder', async (node: FileNode) => {
+    const folderPath = node.resourceUri.fsPath;
+    const files = getAllFiles(folderPath);
+    files.forEach(file => activeProfile.selectedFiles[file] = true);
     config.profiles[config.activeProfile] = activeProfile;
     saveConfig();
     refreshViews();
   }));
 
-  // Create a new profile.
+  context.subscriptions.push(vscode.commands.registerCommand('extension.unselectAllInFolder', async (node: FileNode) => {
+    const folderPath = node.resourceUri.fsPath;
+    const files = getAllFiles(folderPath);
+    files.forEach(file => { delete activeProfile.selectedFiles[file]; });
+    config.profiles[config.activeProfile] = activeProfile;
+    saveConfig();
+    refreshViews();
+  }));
+
   context.subscriptions.push(vscode.commands.registerCommand('extension.newProfile', async () => {
     const profileName = await vscode.window.showInputBox({ prompt: "Enter new profile name" });
     if (profileName && !config.profiles[profileName]) {
@@ -200,7 +204,6 @@ export function activate(context: vscode.ExtensionContext) {
     }
   }));
 
-  // Rename current profile.
   context.subscriptions.push(vscode.commands.registerCommand('extension.renameProfile', async () => {
     const newName = await vscode.window.showInputBox({ prompt: "Enter new name for current profile", value: config.activeProfile });
     if (newName && newName !== config.activeProfile) {
@@ -218,7 +221,6 @@ export function activate(context: vscode.ExtensionContext) {
     }
   }));
 
-  // Switch active profile.
   context.subscriptions.push(vscode.commands.registerCommand('extension.switchProfile', async () => {
     const profileNames = Object.keys(config.profiles);
     const selected = await vscode.window.showQuickPick(profileNames, { placeHolder: "Select profile" });
@@ -232,7 +234,6 @@ export function activate(context: vscode.ExtensionContext) {
     }
   }));
 
-  // Open How To webview.
   context.subscriptions.push(vscode.commands.registerCommand('extension.openHowTo', () => {
     const panel = vscode.window.createWebviewPanel(
       'howTo',
@@ -243,7 +244,6 @@ export function activate(context: vscode.ExtensionContext) {
     panel.webview.html = getHowToHtml();
   }));
 
-  // Create a status bar button for Copy Context.
   const copyStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   copyStatusBar.command = 'extension.copyContext';
   copyStatusBar.text = '$(clippy) Copy Project Context';
@@ -276,10 +276,10 @@ function getHowToHtml(): string {
     <h2>How to do it</h2>
     <ul>
       <li><strong>Select things:</strong> Use the <em>Project File Selector</em> tree and click on the files you want in context. Selected files are marked with a “[x]”, and they're added to the "Files Selected" area.</li>
-      <li><strong>Toggle All:</strong> Use the <em>Select All / Unselect All</em> buttons (in the title bar under the pre-prompt) to quickly add or remove all files.</li>
-      <li><strong>Pre-Prompt:</strong> For the files you selected, you can use the "Pre-Prompt" to always prepend the contents of the files you select - use it to give the AI model context you always keep typing.  Also, try adding comments to the top of your files for file specific notes.</li>
-      <li><strong>Profiles:</strong> Create, rename, and switch profiles so you can save different file selections and pre-prompts for different parts of your codebase.  Good for keeping token counts down.</li>
-      <li><strong>Copy Context:</strong> The <em>Copy Context!</em> buttons on the status bar and title bars copies your pre-prompt along with all text of the selected files AND their names relative to the workspace root so the AI knows what it's looking at.</li>
+      <li><strong>Folder buttons:</strong> In the Project File Selector each folder now has two inline buttons (“All” and “None”) that select or unselect all files in that folder and its subfolders.</li>
+      <li><strong>Pre-Prompt:</strong> For the files you selected, you can use the "Pre-Prompt" to always prepend the contents of the files you select.</li>
+      <li><strong>Profiles:</strong> Create, rename, and switch profiles so you can save different file selections and pre-prompts.</li>
+      <li><strong>Copy Context:</strong> The Copy Context buttons copy your pre-prompt along with all text of the selected files plus their relative paths.</li>
     </ul>
     <p>If you move, rename, or delete something, it won't appear in your copied context. Reselect those files in the hierarchy.</p>
     <p>Enjoy!</p>
@@ -359,6 +359,10 @@ class FileNode extends vscode.TreeItem {
   ) {
     super(label, isDirectory ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
     this.isDirectory = isDirectory;
+    // For folders, set contextValue to “folder” so inline folder commands show
+    if (isDirectory) {
+      this.contextValue = "folder";
+    }
     this.updateLabel();
     if (!this.isDirectory) {
       this.command = {

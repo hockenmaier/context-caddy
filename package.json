@@ -18,7 +18,8 @@
     "onCommand:extension.switchProfile",
     "onCommand:extension.toggleSelection",
     "onCommand:extension.removeFromContext",
-    "onCommand:extension.toggleAll",
+    "onCommand:extension.selectAllInFolder",
+    "onCommand:extension.unselectAllInFolder",
     "onCommand:extension.openHowTo",
     "onView:projectContext",
     "onView:selectedFilesView"
@@ -33,7 +34,8 @@
       { "command": "extension.renameProfile", "title": "Rename Profile" },
       { "command": "extension.switchProfile", "title": "Switch Profile" },
       { "command": "extension.removeFromContext", "title": "Remove from Context" },
-      { "command": "extension.toggleAll", "title": "Select All" },
+      { "command": "extension.selectAllInFolder", "title": "All" },
+      { "command": "extension.unselectAllInFolder", "title": "None" },
       { "command": "extension.openHowTo", "title": "How To Use" }
     ],
     "viewsContainers": {
@@ -70,28 +72,22 @@
           "group": "context@1"
         },
         {
-          "command": "extension.toggleAll",
-          "when": "view == projectContext && !allSelected",
-          "group": "context@2",
-          "title": "Select All"
-        },
-        {
-          "command": "extension.toggleAll",
-          "when": "view == projectContext && allSelected",
-          "group": "context@2",
-          "title": "Unselect All"
-        },
-        {
           "command": "extension.copyContext",
           "when": "view == projectContext",
           "group": "context@3",
-          "icon": "resources/smiley128.png"
+          "icon": {
+            "light": "resources/smiley16.png",
+            "dark": "resources/smiley16.png"
+          }
         },
         {
           "command": "extension.copyContext",
           "when": "view == selectedFilesView",
           "group": "context@1",
-          "icon": "resources/smiley128.png"
+          "icon": {
+            "light": "resources/icon.svg",
+            "dark": "resources/icon.svg"
+          }
         },
         {
           "command": "extension.openHowTo",
@@ -104,6 +100,16 @@
         {
           "command": "extension.removeFromContext",
           "when": "view == selectedFilesView",
+          "group": "inline"
+        },
+        {
+          "command": "extension.selectAllInFolder",
+          "when": "view == projectContext && viewItem == folder",
+          "group": "inline"
+        },
+        {
+          "command": "extension.unselectAllInFolder",
+          "when": "view == projectContext && viewItem == folder",
           "group": "inline"
         }
       ]
