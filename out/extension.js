@@ -111,6 +111,19 @@ function activate(context) {
     const selectedTreeView = vscode.window.createTreeView("selectedFilesView", {
         treeDataProvider: selectedProvider,
     });
+    // Create a status bar item to indicate the toggle state.
+    const toggleStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 99);
+    toggleStatusBar.command = "extension.toggleIncludeFileTree";
+    updateToggleStatusBar();
+    toggleStatusBar.show();
+    context.subscriptions.push(toggleStatusBar);
+    function updateToggleStatusBar() {
+        toggleStatusBar.text = activeProfile.includeFileTree
+            ? "Copy File Tree: On"
+            : "Copy File Tree: Off";
+        toggleStatusBar.tooltip =
+            "Click to toggle inclusion of file tree in Context Caddy copy";
+    }
     function refreshViews() {
         return __awaiter(this, void 0, void 0, function* () {
             projectProvider.refresh();
@@ -153,6 +166,7 @@ function activate(context) {
             prePrompt = activeProfile.prePrompt;
             projectProvider.selectedFiles = activeProfile.selectedFiles;
             selectedProvider.selectedFiles = activeProfile.selectedFiles;
+            updateToggleStatusBar();
             refreshViews();
         });
         context.subscriptions.push(configWatcher);
@@ -191,11 +205,12 @@ function activate(context) {
             vscode.window.showInformationMessage("Pre-Prompt saved for profile: " + config.activeProfile);
         }
     })));
-    // New command: toggle the Include File Tree setting.
+    // Toggle command now updates the status bar.
     context.subscriptions.push(vscode.commands.registerCommand("extension.toggleIncludeFileTree", () => {
         activeProfile.includeFileTree = !activeProfile.includeFileTree;
         config.profiles[config.activeProfile] = activeProfile;
         saveConfig();
+        updateToggleStatusBar();
         vscode.window.showInformationMessage("Include File Tree " +
             (activeProfile.includeFileTree ? "Enabled" : "Disabled"));
     }));
@@ -220,7 +235,7 @@ function activate(context) {
                     }
                 }
                 fileTreeText += `Project: ${folder.name}\n`;
-                fileTreeText += buildMinimalFileTree(workspacePath, includePaths, "  ", true);
+                fileTreeText += buildMinimalFileTree(workspacePath, includePaths, "  ");
             }
             text +=
                 "Here is the structure of the project as it relates to the file contents below:\n";
@@ -320,6 +335,7 @@ function activate(context) {
             projectProvider.selectedFiles = activeProfile.selectedFiles;
             selectedProvider.selectedFiles = activeProfile.selectedFiles;
             saveConfig();
+            updateToggleStatusBar();
             refreshViews();
             vscode.window.showInformationMessage("Switched to profile: " + selected);
         }
@@ -330,7 +346,7 @@ function activate(context) {
     }));
     const copyStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
     copyStatusBar.command = "extension.copyContext";
-    copyStatusBar.text = "$(clippy) Context Caddy Copy";
+    copyStatusBar.text = "$(clippy) Copy Context Caddy";
     copyStatusBar.tooltip =
         "Click to copy the full text and names of the files you selected in Context Caddy";
     copyStatusBar.show();
@@ -374,9 +390,9 @@ function getHowToHtml() {
 function deactivate() { }
 exports.deactivate = deactivate;
 // Helper: Build a minimal file tree string.
-// It prints folder and file names with indentation. Only expands folders if
-// they are at the root or are ancestors of a selected file.
-function buildMinimalFileTree(dir, includePaths, indent, isRoot) {
+// It lists folder and file names with indentation.
+// Always lists root items, but only expands a directory's children if its fullPath is in includePaths.
+function buildMinimalFileTree(dir, includePaths, indent) {
     let result = "";
     const excluded = new Set(["node_modules", ".git", "dist", "build"]);
     let items;
@@ -398,11 +414,9 @@ function buildMinimalFileTree(dir, includePaths, indent, isRoot) {
         }
         if (stat.isDirectory()) {
             result += indent + item + "/\n";
-            if (isRoot || includePaths.has(fullPath)) {
-                if (excluded.has(item) && !includePaths.has(fullPath)) {
-                    continue;
-                }
-                result += buildMinimalFileTree(fullPath, includePaths, indent + "  ", false);
+            // Only expand this directory if it is an ancestor of a selected file.
+            if (includePaths.has(fullPath)) {
+                result += buildMinimalFileTree(fullPath, includePaths, indent + "  ");
             }
         }
         else {

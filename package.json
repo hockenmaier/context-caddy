@@ -2,7 +2,7 @@
   "name": "context-caddy",
   "displayName": "Context Caddy",
   "description": "Select files from your workspace and copy a pre-prompt plus their content with multiple profiles and a context view.",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "publisher": "yourPublisherName",
   "engines": {
     "vscode": "^1.70.0"
@@ -70,7 +70,7 @@
       },
       {
         "command": "extension.toggleIncludeFileTree",
-        "title": "Include File Tree"
+        "title": "Toggle File Tree"
       }
     ],
     "viewsContainers": {
