@@ -16,24 +16,40 @@ const path = require("path");
 let config;
 let configFilePath;
 function getConfigFilePath() {
-    if (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0) {
+    if (!vscode.workspace.workspaceFolders ||
+        vscode.workspace.workspaceFolders.length === 0) {
         return undefined;
     }
     return path.join(vscode.workspace.workspaceFolders[0].uri.fsPath, "contextcaddy-config.json");
 }
 function loadConfig() {
     const filePath = getConfigFilePath();
-    let defaultConfig = { profiles: { "default": { selectedFiles: {}, prePrompt: "" } }, activeProfile: "default" };
+    let defaultConfig = {
+        profiles: {
+            default: { selectedFiles: {}, prePrompt: "", includeFileTree: false },
+        },
+        activeProfile: "default",
+    };
     if (!filePath) {
         vscode.window.showErrorMessage("No workspace folder open. Config cannot be loaded.");
         return defaultConfig;
     }
     if (fs.existsSync(filePath)) {
         try {
-            const raw = fs.readFileSync(filePath, 'utf8');
+            const raw = fs.readFileSync(filePath, "utf8");
             const parsed = JSON.parse(raw);
             if (!parsed.profiles["default"]) {
-                parsed.profiles["default"] = { selectedFiles: {}, prePrompt: "" };
+                parsed.profiles["default"] = {
+                    selectedFiles: {},
+                    prePrompt: "",
+                    includeFileTree: false,
+                };
+            }
+            // Ensure every profile has includeFileTree defined.
+            for (const key in parsed.profiles) {
+                if (parsed.profiles[key].includeFileTree === undefined) {
+                    parsed.profiles[key].includeFileTree = false;
+                }
             }
             if (!parsed.activeProfile || !parsed.profiles[parsed.activeProfile]) {
                 parsed.activeProfile = "default";
@@ -57,7 +73,7 @@ function saveConfig() {
 function getAllFiles(dir) {
     let results = [];
     const list = fs.readdirSync(dir);
-    list.forEach(file => {
+    list.forEach((file) => {
         const fullPath = path.join(dir, file);
         const stat = fs.statSync(fullPath);
         if (stat && stat.isDirectory()) {
@@ -79,7 +95,7 @@ function updateAllSelectedContext(activeFiles) {
         }
         const selectedCount = Object.keys(activeFiles).length;
         const allSelected = allFiles.length > 0 && selectedCount === allFiles.length;
-        yield vscode.commands.executeCommand('setContext', 'allSelected', allSelected);
+        yield vscode.commands.executeCommand("setContext", "allSelected", allSelected);
     });
 }
 function activate(context) {
@@ -88,9 +104,13 @@ function activate(context) {
     let activeProfile = config.profiles[config.activeProfile];
     let prePrompt = activeProfile.prePrompt;
     const projectProvider = new ProjectContextProvider(activeProfile.selectedFiles);
-    vscode.window.createTreeView('projectContext', { treeDataProvider: projectProvider });
+    vscode.window.createTreeView("projectContext", {
+        treeDataProvider: projectProvider,
+    });
     const selectedProvider = new SelectedFilesProvider(activeProfile.selectedFiles);
-    const selectedTreeView = vscode.window.createTreeView('selectedFilesView', { treeDataProvider: selectedProvider });
+    const selectedTreeView = vscode.window.createTreeView("selectedFilesView", {
+        treeDataProvider: selectedProvider,
+    });
     function refreshViews() {
         return __awaiter(this, void 0, void 0, function* () {
             projectProvider.refresh();
@@ -102,9 +122,11 @@ function activate(context) {
             for (let filePath of selectedPaths) {
                 try {
                     if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
-                        let content = fs.readFileSync(filePath, 'utf8');
+                        let content = fs.readFileSync(filePath, "utf8");
                         let workspaceFolder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(filePath));
-                        let relPath = workspaceFolder ? path.relative(workspaceFolder.uri.fsPath, filePath) : filePath;
+                        let relPath = workspaceFolder
+                            ? path.relative(workspaceFolder.uri.fsPath, filePath)
+                            : filePath;
                         text += `----- ${relPath} -----\n${content}\n\n`;
                     }
                 }
@@ -116,7 +138,26 @@ function activate(context) {
             selectedTreeView.message = `Approx tokens: ${approxTokens}`;
         });
     }
-    context.subscriptions.push(vscode.commands.registerCommand('extension.toggleSelection', (node) => {
+    // Watch for file changes to refresh the project tree.
+    const fsWatcher = vscode.workspace.createFileSystemWatcher("**/*");
+    fsWatcher.onDidCreate(() => projectProvider.refresh());
+    fsWatcher.onDidDelete(() => projectProvider.refresh());
+    fsWatcher.onDidChange(() => projectProvider.refresh());
+    context.subscriptions.push(fsWatcher);
+    // Watch config file for external changes.
+    if (configFilePath) {
+        const configWatcher = vscode.workspace.createFileSystemWatcher(configFilePath);
+        configWatcher.onDidChange(() => {
+            config = loadConfig();
+            activeProfile = config.profiles[config.activeProfile];
+            prePrompt = activeProfile.prePrompt;
+            projectProvider.selectedFiles = activeProfile.selectedFiles;
+            selectedProvider.selectedFiles = activeProfile.selectedFiles;
+            refreshViews();
+        });
+        context.subscriptions.push(configWatcher);
+    }
+    context.subscriptions.push(vscode.commands.registerCommand("extension.toggleSelection", (node) => {
         const filePath = node.resourceUri.fsPath;
         if (activeProfile.selectedFiles[filePath]) {
             delete activeProfile.selectedFiles[filePath];
@@ -128,7 +169,7 @@ function activate(context) {
         saveConfig();
         refreshViews();
     }));
-    context.subscriptions.push(vscode.commands.registerCommand('extension.removeFromContext', (node) => {
+    context.subscriptions.push(vscode.commands.registerCommand("extension.removeFromContext", (node) => {
         const filePath = node.filePath;
         if (activeProfile.selectedFiles[filePath]) {
             delete activeProfile.selectedFiles[filePath];
@@ -137,8 +178,11 @@ function activate(context) {
             refreshViews();
         }
     }));
-    context.subscriptions.push(vscode.commands.registerCommand('extension.setPrePrompt', () => __awaiter(this, void 0, void 0, function* () {
-        const input = yield vscode.window.showInputBox({ prompt: "Enter Pre-Prompt", value: prePrompt });
+    context.subscriptions.push(vscode.commands.registerCommand("extension.setPrePrompt", () => __awaiter(this, void 0, void 0, function* () {
+        const input = yield vscode.window.showInputBox({
+            prompt: "Enter Pre-Prompt",
+            value: prePrompt,
+        });
         if (input !== undefined) {
             prePrompt = input;
             activeProfile.prePrompt = prePrompt;
@@ -147,15 +191,50 @@ function activate(context) {
             vscode.window.showInformationMessage("Pre-Prompt saved for profile: " + config.activeProfile);
         }
     })));
-    context.subscriptions.push(vscode.commands.registerCommand('extension.copyContext', () => __awaiter(this, void 0, void 0, function* () {
+    // New command: toggle the Include File Tree setting.
+    context.subscriptions.push(vscode.commands.registerCommand("extension.toggleIncludeFileTree", () => {
+        activeProfile.includeFileTree = !activeProfile.includeFileTree;
+        config.profiles[config.activeProfile] = activeProfile;
+        saveConfig();
+        vscode.window.showInformationMessage("Include File Tree " +
+            (activeProfile.includeFileTree ? "Enabled" : "Disabled"));
+    }));
+    context.subscriptions.push(vscode.commands.registerCommand("extension.copyContext", () => __awaiter(this, void 0, void 0, function* () {
         let text = prePrompt + "\n\n";
+        if (activeProfile.includeFileTree && vscode.workspace.workspaceFolders) {
+            let fileTreeText = "";
+            for (const folder of vscode.workspace.workspaceFolders) {
+                const workspacePath = folder.uri.fsPath;
+                const includePaths = new Set();
+                // For each selected file under this workspace, add all its ancestors.
+                for (const filePath of Object.keys(activeProfile.selectedFiles)) {
+                    if (filePath.startsWith(workspacePath)) {
+                        let current = path.dirname(filePath);
+                        while (current.startsWith(workspacePath)) {
+                            includePaths.add(current);
+                            const parent = path.dirname(current);
+                            if (parent === current)
+                                break;
+                            current = parent;
+                        }
+                    }
+                }
+                fileTreeText += `Project: ${folder.name}\n`;
+                fileTreeText += buildMinimalFileTree(workspacePath, includePaths, "  ", true);
+            }
+            text +=
+                "Here is the structure of the project as it relates to the file contents below:\n";
+            text += fileTreeText + "\n";
+        }
         const selectedPaths = Object.keys(activeProfile.selectedFiles);
         for (let filePath of selectedPaths) {
             try {
                 if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
-                    let content = fs.readFileSync(filePath, 'utf8');
+                    let content = fs.readFileSync(filePath, "utf8");
                     let workspaceFolder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(filePath));
-                    let relPath = workspaceFolder ? path.relative(workspaceFolder.uri.fsPath, filePath) : filePath;
+                    let relPath = workspaceFolder
+                        ? path.relative(workspaceFolder.uri.fsPath, filePath)
+                        : filePath;
                     text += `----- ${relPath} -----\n${content}\n\n`;
                 }
             }
@@ -167,29 +246,39 @@ function activate(context) {
         const approxTokens = Math.ceil(text.length / 4.3);
         vscode.window.showInformationMessage(`Context copied. Approx tokens: ${approxTokens}`);
     })));
-    // New commands for folder-level selection
-    context.subscriptions.push(vscode.commands.registerCommand('extension.selectAllInFolder', (node) => __awaiter(this, void 0, void 0, function* () {
+    context.subscriptions.push(vscode.commands.registerCommand("extension.selectAllInFolder", (node) => __awaiter(this, void 0, void 0, function* () {
         const folderPath = node.resourceUri.fsPath;
         const files = getAllFiles(folderPath);
-        files.forEach(file => activeProfile.selectedFiles[file] = true);
+        files.forEach((file) => (activeProfile.selectedFiles[file] = true));
         config.profiles[config.activeProfile] = activeProfile;
         saveConfig();
         refreshViews();
     })));
-    context.subscriptions.push(vscode.commands.registerCommand('extension.unselectAllInFolder', (node) => __awaiter(this, void 0, void 0, function* () {
+    context.subscriptions.push(vscode.commands.registerCommand("extension.unselectAllInFolder", (node) => __awaiter(this, void 0, void 0, function* () {
         const folderPath = node.resourceUri.fsPath;
         const files = getAllFiles(folderPath);
-        files.forEach(file => { delete activeProfile.selectedFiles[file]; });
+        files.forEach((file) => {
+            delete activeProfile.selectedFiles[file];
+        });
         config.profiles[config.activeProfile] = activeProfile;
         saveConfig();
         refreshViews();
     })));
-    context.subscriptions.push(vscode.commands.registerCommand('extension.newProfile', () => __awaiter(this, void 0, void 0, function* () {
-        const profileName = yield vscode.window.showInputBox({ prompt: "Enter new profile name" });
+    context.subscriptions.push(vscode.commands.registerCommand("extension.newProfile", () => __awaiter(this, void 0, void 0, function* () {
+        const profileName = yield vscode.window.showInputBox({
+            prompt: "Enter new profile name",
+        });
         if (profileName && !config.profiles[profileName]) {
-            config.profiles[profileName] = { selectedFiles: {}, prePrompt: "" };
+            config.profiles[profileName] = {
+                selectedFiles: {},
+                prePrompt: "",
+                includeFileTree: false,
+            };
             config.activeProfile = profileName;
             activeProfile = config.profiles[profileName];
+            // Update providers to use the new profile's data:
+            projectProvider.selectedFiles = activeProfile.selectedFiles;
+            selectedProvider.selectedFiles = activeProfile.selectedFiles;
             saveConfig();
             refreshViews();
             vscode.window.showInformationMessage("New profile created and activated: " + profileName);
@@ -198,8 +287,11 @@ function activate(context) {
             vscode.window.showErrorMessage("Profile already exists.");
         }
     })));
-    context.subscriptions.push(vscode.commands.registerCommand('extension.renameProfile', () => __awaiter(this, void 0, void 0, function* () {
-        const newName = yield vscode.window.showInputBox({ prompt: "Enter new name for current profile", value: config.activeProfile });
+    context.subscriptions.push(vscode.commands.registerCommand("extension.renameProfile", () => __awaiter(this, void 0, void 0, function* () {
+        const newName = yield vscode.window.showInputBox({
+            prompt: "Enter new name for current profile",
+            value: config.activeProfile,
+        });
         if (newName && newName !== config.activeProfile) {
             if (config.profiles[newName]) {
                 vscode.window.showErrorMessage("A profile with that name already exists.");
@@ -215,9 +307,11 @@ function activate(context) {
             }
         }
     })));
-    context.subscriptions.push(vscode.commands.registerCommand('extension.switchProfile', () => __awaiter(this, void 0, void 0, function* () {
+    context.subscriptions.push(vscode.commands.registerCommand("extension.switchProfile", () => __awaiter(this, void 0, void 0, function* () {
         const profileNames = Object.keys(config.profiles);
-        const selected = yield vscode.window.showQuickPick(profileNames, { placeHolder: "Select profile" });
+        const selected = yield vscode.window.showQuickPick(profileNames, {
+            placeHolder: "Select profile",
+        });
         if (selected) {
             config.activeProfile = selected;
             activeProfile = config.profiles[selected];
@@ -230,14 +324,15 @@ function activate(context) {
             vscode.window.showInformationMessage("Switched to profile: " + selected);
         }
     })));
-    context.subscriptions.push(vscode.commands.registerCommand('extension.openHowTo', () => {
-        const panel = vscode.window.createWebviewPanel('howTo', 'Project Context Copier - How To Use', vscode.ViewColumn.One, { enableScripts: false });
+    context.subscriptions.push(vscode.commands.registerCommand("extension.openHowTo", () => {
+        const panel = vscode.window.createWebviewPanel("howTo", "Project Context Copier - How To Use", vscode.ViewColumn.One, { enableScripts: false });
         panel.webview.html = getHowToHtml();
     }));
     const copyStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
-    copyStatusBar.command = 'extension.copyContext';
-    copyStatusBar.text = '$(clippy) Context Caddy Copy';
-    copyStatusBar.tooltip = 'Click to copy the full text and names of the files you selected in Context Caddy';
+    copyStatusBar.command = "extension.copyContext";
+    copyStatusBar.text = "$(clippy) Context Caddy Copy";
+    copyStatusBar.tooltip =
+        "Click to copy the full text and names of the files you selected in Context Caddy";
     copyStatusBar.show();
     context.subscriptions.push(copyStatusBar);
     refreshViews();
@@ -278,6 +373,44 @@ function getHowToHtml() {
 }
 function deactivate() { }
 exports.deactivate = deactivate;
+// Helper: Build a minimal file tree string.
+// It prints folder and file names with indentation. Only expands folders if
+// they are at the root or are ancestors of a selected file.
+function buildMinimalFileTree(dir, includePaths, indent, isRoot) {
+    let result = "";
+    const excluded = new Set(["node_modules", ".git", "dist", "build"]);
+    let items;
+    try {
+        items = fs.readdirSync(dir);
+    }
+    catch (e) {
+        return result;
+    }
+    items.sort((a, b) => a.localeCompare(b));
+    for (const item of items) {
+        const fullPath = path.join(dir, item);
+        let stat;
+        try {
+            stat = fs.statSync(fullPath);
+        }
+        catch (e) {
+            continue;
+        }
+        if (stat.isDirectory()) {
+            result += indent + item + "/\n";
+            if (isRoot || includePaths.has(fullPath)) {
+                if (excluded.has(item) && !includePaths.has(fullPath)) {
+                    continue;
+                }
+                result += buildMinimalFileTree(fullPath, includePaths, indent + "  ", false);
+            }
+        }
+        else {
+            result += indent + item + "\n";
+        }
+    }
+    return result;
+}
 class ProjectContextProvider {
     constructor(selectedFiles) {
         this._onDidChangeTreeData = new vscode.EventEmitter();
@@ -292,7 +425,7 @@ class ProjectContextProvider {
     }
     getChildren(element) {
         if (!vscode.workspace.workspaceFolders) {
-            vscode.window.showInformationMessage('No workspace folder open');
+            vscode.window.showInformationMessage("No workspace folder open");
             return Promise.resolve([]);
         }
         if (element) {
@@ -337,20 +470,21 @@ class ProjectContextProvider {
 }
 class FileNode extends vscode.TreeItem {
     constructor(resourceUri, label, isDirectory, selectedFiles) {
-        super(label, isDirectory ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
+        super(label, isDirectory
+            ? vscode.TreeItemCollapsibleState.Collapsed
+            : vscode.TreeItemCollapsibleState.None);
         this.resourceUri = resourceUri;
         this.selectedFiles = selectedFiles;
         this.isDirectory = isDirectory;
-        // For folders, set contextValue to “folder” so inline folder commands show
         if (isDirectory) {
             this.contextValue = "folder";
         }
         this.updateLabel();
         if (!this.isDirectory) {
             this.command = {
-                command: 'extension.toggleSelection',
-                title: 'Toggle File Selection',
-                arguments: [this]
+                command: "extension.toggleSelection",
+                title: "Toggle File Selection",
+                arguments: [this],
             };
         }
     }
@@ -375,8 +509,12 @@ class SelectedFilesProvider {
         let nodes = [];
         const filePaths = Object.keys(this.selectedFiles);
         for (let filePath of filePaths) {
-            let workspaceFolder = vscode.workspace.workspaceFolders ? vscode.workspace.workspaceFolders[0].uri.fsPath : "";
-            let relPath = workspaceFolder ? path.relative(workspaceFolder, filePath) : filePath;
+            let workspaceFolder = vscode.workspace.workspaceFolders
+                ? vscode.workspace.workspaceFolders[0].uri.fsPath
+                : "";
+            let relPath = workspaceFolder
+                ? path.relative(workspaceFolder, filePath)
+                : filePath;
             nodes.push(new SelectedFileNode(filePath, relPath));
         }
         return Promise.resolve(nodes);
@@ -387,9 +525,9 @@ class SelectedFileNode extends vscode.TreeItem {
         super(label, vscode.TreeItemCollapsibleState.None);
         this.filePath = filePath;
         this.command = {
-            command: 'extension.removeFromContext',
-            title: 'Remove from Context',
-            arguments: [this]
+            command: "extension.removeFromContext",
+            title: "Remove from Context",
+            arguments: [this],
         };
         this.contextValue = "selectedFile";
     }

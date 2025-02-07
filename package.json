@@ -2,7 +2,7 @@
   "name": "context-caddy",
   "displayName": "Context Caddy",
   "description": "Select files from your workspace and copy a pre-prompt plus their content with multiple profiles and a context view.",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "publisher": "yourPublisherName",
   "engines": {
     "vscode": "^1.70.0"
@@ -22,31 +22,76 @@
     "onCommand:extension.unselectAllInFolder",
     "onCommand:extension.openHowTo",
     "onView:projectContext",
-    "onView:selectedFilesView"
+    "onView:selectedFilesView",
+    "onCommand:extension.toggleIncludeFileTree"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
-      { "command": "extension.setPrePrompt", "title": "Set Pre-Prompt" },
-      { "command": "extension.copyContext", "title": "Copy Context!" },
-      { "command": "extension.toggleSelection", "title": "Toggle File Selection" },
-      { "command": "extension.newProfile", "title": "New Profile" },
-      { "command": "extension.renameProfile", "title": "Rename Profile" },
-      { "command": "extension.switchProfile", "title": "Switch Profile" },
-      { "command": "extension.removeFromContext", "title": "Remove from Context" },
-      { "command": "extension.selectAllInFolder", "title": "All" },
-      { "command": "extension.unselectAllInFolder", "title": "None" },
-      { "command": "extension.openHowTo", "title": "How To Use" }
+      {
+        "command": "extension.setPrePrompt",
+        "title": "Set Pre-Prompt"
+      },
+      {
+        "command": "extension.copyContext",
+        "title": "Copy Context!"
+      },
+      {
+        "command": "extension.toggleSelection",
+        "title": "Toggle File Selection"
+      },
+      {
+        "command": "extension.newProfile",
+        "title": "New Profile"
+      },
+      {
+        "command": "extension.renameProfile",
+        "title": "Rename Profile"
+      },
+      {
+        "command": "extension.switchProfile",
+        "title": "Switch Profile"
+      },
+      {
+        "command": "extension.removeFromContext",
+        "title": "Remove from Context"
+      },
+      {
+        "command": "extension.selectAllInFolder",
+        "title": "All"
+      },
+      {
+        "command": "extension.unselectAllInFolder",
+        "title": "None"
+      },
+      {
+        "command": "extension.openHowTo",
+        "title": "How To Use"
+      },
+      {
+        "command": "extension.toggleIncludeFileTree",
+        "title": "Include File Tree"
+      }
     ],
     "viewsContainers": {
       "activitybar": [
-        { "id": "chatContextContainer", "title": "Context Caddy", "icon": "resources/smiley128.png" }
+        {
+          "id": "chatContextContainer",
+          "title": "Context Caddy",
+          "icon": "resources/smiley128.png"
+        }
       ]
     },
     "views": {
       "chatContextContainer": [
-        { "id": "projectContext", "name": "Project File Selector" },
-        { "id": "selectedFilesView", "name": "Files Selected" }
+        {
+          "id": "projectContext",
+          "name": "Project File Selector"
+        },
+        {
+          "id": "selectedFilesView",
+          "name": "Files Selected"
+        }
       ]
     },
     "menus": {
@@ -82,6 +127,12 @@
           "when": "view == projectContext || view == selectedFilesView",
           "group": "help",
           "title": "How To Use"
+        },
+        {
+          "command": "extension.toggleIncludeFileTree",
+          "when": "view == projectContext || view == selectedFilesView",
+          "group": "context@1",
+          "title": "Toggle Include File Tree"
         }
       ],
       "view/item/context": [
@@ -101,7 +152,7 @@
           "group": "inline"
         }
       ]
-    }    
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
