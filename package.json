@@ -2,7 +2,7 @@
   "name": "context-caddy",
   "displayName": "Context Caddy",
   "description": "Select files from your workspace and copy a pre-prompt plus their content with multiple profiles and a context view.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "yourPublisherName",
   "engines": {
     "vscode": "^1.70.0"
@@ -82,6 +82,23 @@
           "when": "view == projectContext || view == selectedFilesView",
           "group": "help",
           "title": "How To Use"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "extension.removeFromContext",
+          "when": "view == selectedFilesView",
+          "group": "inline"
+        },
+        {
+          "command": "extension.selectAllInFolder",
+          "when": "view == projectContext && viewItem == folder",
+          "group": "inline"
+        },
+        {
+          "command": "extension.unselectAllInFolder",
+          "when": "view == projectContext && viewItem == folder",
+          "group": "inline"
         }
       ]
     }    
