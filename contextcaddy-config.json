@@ -6,7 +6,7 @@
         "g:\\projects\\context-caddy\\tsconfig.json": true,
         "g:\\projects\\context-caddy\\src\\extension.ts": true
       },
-      "prePrompt": ""
+      "prePrompt": "This project is a vscode extension that lets the user select multiple files and set a pre-prompt, and provides a copy button to instantly copy all of those file names and contents onto the clipboard to use with a web based AI tool like chatGPT.  Read the instructions in extension.ts for more details."
     }
   },
   "activeProfile": "default"

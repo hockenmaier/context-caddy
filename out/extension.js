@@ -222,6 +222,9 @@ function activate(context) {
             config.activeProfile = selected;
             activeProfile = config.profiles[selected];
             prePrompt = activeProfile.prePrompt;
+            // Update providers to point to the new profile’s selectedFiles:
+            projectProvider.selectedFiles = activeProfile.selectedFiles;
+            selectedProvider.selectedFiles = activeProfile.selectedFiles;
             saveConfig();
             refreshViews();
             vscode.window.showInformationMessage("Switched to profile: " + selected);
@@ -233,8 +236,8 @@ function activate(context) {
     }));
     const copyStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
     copyStatusBar.command = 'extension.copyContext';
-    copyStatusBar.text = '$(clippy) Copy Project Context';
-    copyStatusBar.tooltip = 'Click to copy project context to clipboard';
+    copyStatusBar.text = '$(clippy) Context Caddy Copy';
+    copyStatusBar.tooltip = 'Click to copy the full text and names of the files you selected in Context Caddy';
     copyStatusBar.show();
     context.subscriptions.push(copyStatusBar);
     refreshViews();

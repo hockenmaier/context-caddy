@@ -53,67 +53,38 @@
       "view/title": [
         {
           "command": "extension.newProfile",
-          "when": "view == projectContext",
+          "when": "view == projectContext || view == selectedFilesView",
           "group": "profile@1"
         },
         {
           "command": "extension.renameProfile",
-          "when": "view == projectContext",
+          "when": "view == projectContext || view == selectedFilesView",
           "group": "profile@1"
         },
         {
           "command": "extension.switchProfile",
-          "when": "view == projectContext",
+          "when": "view == projectContext || view == selectedFilesView",
           "group": "profile@1"
         },
         {
           "command": "extension.setPrePrompt",
-          "when": "view == projectContext",
+          "when": "view == projectContext || view == selectedFilesView",
           "group": "context@1"
         },
         {
           "command": "extension.copyContext",
-          "when": "view == projectContext",
-          "group": "context@3",
-          "icon": {
-            "light": "resources/smiley16.png",
-            "dark": "resources/smiley16.png"
-          }
-        },
-        {
-          "command": "extension.copyContext",
-          "when": "view == selectedFilesView",
+          "when": "view == projectContext || view == selectedFilesView",
           "group": "context@1",
-          "icon": {
-            "light": "resources/icon.svg",
-            "dark": "resources/icon.svg"
-          }
+          "title": "$(clippy) Copy"
         },
         {
           "command": "extension.openHowTo",
-          "when": "view == projectContext",
+          "when": "view == projectContext || view == selectedFilesView",
           "group": "help",
           "title": "How To Use"
         }
-      ],
-      "view/item/context": [
-        {
-          "command": "extension.removeFromContext",
-          "when": "view == selectedFilesView",
-          "group": "inline"
-        },
-        {
-          "command": "extension.selectAllInFolder",
-          "when": "view == projectContext && viewItem == folder",
-          "group": "inline"
-        },
-        {
-          "command": "extension.unselectAllInFolder",
-          "when": "view == projectContext && viewItem == folder",
-          "group": "inline"
-        }
       ]
-    }
+    }    
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
