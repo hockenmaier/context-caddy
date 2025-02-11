@@ -129,8 +129,31 @@ function activate(context) {
             projectProvider.refresh();
             selectedProvider.refresh();
             yield updateAllSelectedContext(activeProfile.selectedFiles);
-            // Update token count in Files Selected view header (using message)
             let text = prePrompt + "\n\n";
+            if (activeProfile.includeFileTree && vscode.workspace.workspaceFolders) {
+                let fileTreeText = "";
+                for (const folder of vscode.workspace.workspaceFolders) {
+                    const workspacePath = folder.uri.fsPath;
+                    const includePaths = new Set();
+                    for (const filePath of Object.keys(activeProfile.selectedFiles)) {
+                        if (filePath.startsWith(workspacePath)) {
+                            let current = path.dirname(filePath);
+                            while (current.startsWith(workspacePath)) {
+                                includePaths.add(current);
+                                const parent = path.dirname(current);
+                                if (parent === current)
+                                    break;
+                                current = parent;
+                            }
+                        }
+                    }
+                    fileTreeText += `Project: ${folder.name}\n`;
+                    fileTreeText += buildMinimalFileTree(workspacePath, includePaths, "  ");
+                }
+                text +=
+                    "Here is the structure of the project as it relates to the file contents below:\n";
+                text += fileTreeText + "\n";
+            }
             const selectedPaths = Object.keys(activeProfile.selectedFiles);
             for (let filePath of selectedPaths) {
                 try {
@@ -148,14 +171,23 @@ function activate(context) {
                 }
             }
             const approxTokens = Math.ceil(text.length / 4.3);
-            selectedTreeView.message = `Approx tokens: ${approxTokens}`;
+            selectedTreeView.message = `Profile: ${config.activeProfile} | Approx tokens: ${approxTokens}`;
         });
     }
     // Watch for file changes to refresh the project tree.
     const fsWatcher = vscode.workspace.createFileSystemWatcher("**/*");
-    fsWatcher.onDidCreate(() => projectProvider.refresh());
-    fsWatcher.onDidDelete(() => projectProvider.refresh());
-    fsWatcher.onDidChange(() => projectProvider.refresh());
+    fsWatcher.onDidCreate(() => {
+        projectProvider.refresh();
+        refreshViews();
+    });
+    fsWatcher.onDidDelete(() => {
+        projectProvider.refresh();
+        refreshViews();
+    });
+    fsWatcher.onDidChange(() => {
+        projectProvider.refresh();
+        refreshViews();
+    });
     context.subscriptions.push(fsWatcher);
     // Watch config file for external changes.
     if (configFilePath) {
