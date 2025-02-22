@@ -54,7 +54,6 @@ function loadConfig(): Config {
           includeFileTree: false,
         };
       }
-      // Ensure every profile has includeFileTree defined.
       for (const key in parsed.profiles) {
         if (parsed.profiles[key].includeFileTree === undefined) {
           parsed.profiles[key].includeFileTree = false;
@@ -62,6 +61,26 @@ function loadConfig(): Config {
       }
       if (!parsed.activeProfile || !parsed.profiles[parsed.activeProfile]) {
         parsed.activeProfile = "default";
+      }
+      const workspaceFolderPath =
+        vscode.workspace.workspaceFolders &&
+        vscode.workspace.workspaceFolders.length > 0
+          ? vscode.workspace.workspaceFolders[0].uri.fsPath
+          : undefined;
+      if (workspaceFolderPath) {
+        for (const profileName in parsed.profiles) {
+          const profile = parsed.profiles[profileName];
+          const newSelectedFiles: { [key: string]: boolean } = {};
+          for (const file of Object.keys(profile.selectedFiles)) {
+            if (path.isAbsolute(file)) {
+              const rel = path.relative(workspaceFolderPath, file);
+              newSelectedFiles[rel] = profile.selectedFiles[file];
+            } else {
+              newSelectedFiles[file] = profile.selectedFiles[file];
+            }
+          }
+          profile.selectedFiles = newSelectedFiles;
+        }
       }
       return parsed;
     } catch (e) {
@@ -84,19 +103,66 @@ function saveConfig() {
   fs.writeFileSync(filePath, JSON.stringify(config, null, 2));
 }
 
-function getAllFiles(dir: string): string[] {
+async function getAllFilesAsync(dir: string): Promise<string[]> {
   let results: string[] = [];
-  const list = fs.readdirSync(dir);
-  list.forEach((file) => {
+  let list: string[];
+  try {
+    list = await fs.promises.readdir(dir);
+  } catch (e) {
+    return results;
+  }
+  for (const file of list) {
     const fullPath = path.join(dir, file);
-    const stat = fs.statSync(fullPath);
-    if (stat && stat.isDirectory()) {
-      results = results.concat(getAllFiles(fullPath));
+    let stat;
+    try {
+      stat = await fs.promises.stat(fullPath);
+    } catch {
+      continue;
+    }
+    if (stat.isDirectory()) {
+      results = results.concat(await getAllFilesAsync(fullPath));
     } else {
       results.push(fullPath);
     }
-  });
+  }
   return results;
+}
+
+async function buildMinimalFileTreeAsync(
+  dir: string,
+  includePaths: Set<string>,
+  indent: string
+): Promise<string> {
+  let result = "";
+  let items: string[];
+  try {
+    items = await fs.promises.readdir(dir);
+  } catch {
+    return result;
+  }
+  items.sort((a, b) => a.localeCompare(b));
+  for (const item of items) {
+    const fullPath = path.join(dir, item);
+    let stat;
+    try {
+      stat = await fs.promises.stat(fullPath);
+    } catch {
+      continue;
+    }
+    if (stat.isDirectory()) {
+      result += indent + item + "/\n";
+      if (includePaths.has(fullPath)) {
+        result += await buildMinimalFileTreeAsync(
+          fullPath,
+          includePaths,
+          indent + "  "
+        );
+      }
+    } else {
+      result += indent + item + "\n";
+    }
+  }
+  return result;
 }
 
 async function updateAllSelectedContext(activeFiles: {
@@ -105,7 +171,7 @@ async function updateAllSelectedContext(activeFiles: {
   let allFiles: string[] = [];
   if (vscode.workspace.workspaceFolders) {
     for (const folder of vscode.workspace.workspaceFolders) {
-      allFiles = allFiles.concat(getAllFiles(folder.uri.fsPath));
+      allFiles = allFiles.concat(await getAllFilesAsync(folder.uri.fsPath));
     }
   }
   const selectedCount = Object.keys(activeFiles).length;
@@ -136,7 +202,6 @@ export function activate(context: vscode.ExtensionContext) {
     treeDataProvider: selectedProvider,
   });
 
-  // Create a status bar item to indicate the toggle state.
   const toggleStatusBar = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Left,
     99
@@ -165,9 +230,12 @@ export function activate(context: vscode.ExtensionContext) {
       for (const folder of vscode.workspace.workspaceFolders) {
         const workspacePath = folder.uri.fsPath;
         const includePaths = new Set<string>();
-        for (const filePath of Object.keys(activeProfile.selectedFiles)) {
-          if (filePath.startsWith(workspacePath)) {
-            let current = path.dirname(filePath);
+        for (const fileKey of Object.keys(activeProfile.selectedFiles)) {
+          const absPath = path.isAbsolute(fileKey)
+            ? fileKey
+            : path.join(workspacePath, fileKey);
+          if (absPath.startsWith(workspacePath)) {
+            let current = path.dirname(absPath);
             while (current.startsWith(workspacePath)) {
               includePaths.add(current);
               const parent = path.dirname(current);
@@ -177,28 +245,44 @@ export function activate(context: vscode.ExtensionContext) {
           }
         }
         fileTreeText += `Project: ${folder.name}\n`;
-        fileTreeText += buildMinimalFileTree(workspacePath, includePaths, "  ");
+        fileTreeText += await buildMinimalFileTreeAsync(
+          workspacePath,
+          includePaths,
+          "  "
+        );
       }
       text +=
         "Here is the structure of the project as it relates to the file contents below:\n";
       text += fileTreeText + "\n";
     }
 
-    const selectedPaths = Object.keys(activeProfile.selectedFiles);
-    for (let filePath of selectedPaths) {
+    const selectedKeys = Object.keys(activeProfile.selectedFiles);
+    for (const fileKey of selectedKeys) {
+      let absPath = fileKey;
+      if (
+        !path.isAbsolute(fileKey) &&
+        vscode.workspace.workspaceFolders &&
+        vscode.workspace.workspaceFolders.length > 0
+      ) {
+        absPath = path.join(
+          vscode.workspace.workspaceFolders[0].uri.fsPath,
+          fileKey
+        );
+      }
       try {
-        if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
-          let content = fs.readFileSync(filePath, "utf8");
-          let workspaceFolder = vscode.workspace.getWorkspaceFolder(
-            vscode.Uri.file(filePath)
+        const stat = await fs.promises.stat(absPath);
+        if (stat.isFile()) {
+          const content = await fs.promises.readFile(absPath, "utf8");
+          const workspaceFolder = vscode.workspace.getWorkspaceFolder(
+            vscode.Uri.file(absPath)
           );
-          let relPath = workspaceFolder
-            ? path.relative(workspaceFolder.uri.fsPath, filePath)
-            : filePath;
+          const relPath = workspaceFolder
+            ? path.relative(workspaceFolder.uri.fsPath, absPath)
+            : absPath;
           text += `----- ${relPath} -----\n${content}\n\n`;
         }
       } catch (error) {
-        console.error("Error reading file: " + filePath, error);
+        console.error("Error reading file: " + absPath, error);
       }
     }
     const approxTokens = Math.ceil(text.length / 4.3);
@@ -207,7 +291,6 @@ export function activate(context: vscode.ExtensionContext) {
     ).message = `Profile: ${config.activeProfile} | Approx tokens: ${approxTokens}`;
   }
 
-  // Watch for file changes to refresh the project tree.
   const fsWatcher = vscode.workspace.createFileSystemWatcher("**/*");
   fsWatcher.onDidCreate(() => {
     projectProvider.refresh();
@@ -223,7 +306,6 @@ export function activate(context: vscode.ExtensionContext) {
   });
   context.subscriptions.push(fsWatcher);
 
-  // Watch config file for external changes.
   if (configFilePath) {
     const configWatcher =
       vscode.workspace.createFileSystemWatcher(configFilePath);
@@ -243,11 +325,17 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand(
       "extension.toggleSelection",
       (node: FileNode) => {
-        const filePath = node.resourceUri.fsPath;
-        if (activeProfile.selectedFiles[filePath]) {
-          delete activeProfile.selectedFiles[filePath];
+        const fileAbsPath = node.resourceUri.fsPath;
+        const workspaceFolder = vscode.workspace.getWorkspaceFolder(
+          vscode.Uri.file(fileAbsPath)
+        );
+        const relPath = workspaceFolder
+          ? path.relative(workspaceFolder.uri.fsPath, fileAbsPath)
+          : fileAbsPath;
+        if (activeProfile.selectedFiles[relPath]) {
+          delete activeProfile.selectedFiles[relPath];
         } else {
-          activeProfile.selectedFiles[filePath] = true;
+          activeProfile.selectedFiles[relPath] = true;
         }
         config.profiles[config.activeProfile] = activeProfile;
         saveConfig();
@@ -260,9 +348,9 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand(
       "extension.removeFromContext",
       (node: SelectedFileNode) => {
-        const filePath = node.filePath;
-        if (activeProfile.selectedFiles[filePath]) {
-          delete activeProfile.selectedFiles[filePath];
+        const fileKey = node.filePath;
+        if (activeProfile.selectedFiles[fileKey]) {
+          delete activeProfile.selectedFiles[fileKey];
           config.profiles[config.activeProfile] = activeProfile;
           saveConfig();
           refreshViews();
@@ -289,7 +377,6 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // Toggle command now updates the status bar.
   context.subscriptions.push(
     vscode.commands.registerCommand("extension.toggleIncludeFileTree", () => {
       activeProfile.includeFileTree = !activeProfile.includeFileTree;
@@ -306,16 +393,17 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand("extension.copyContext", async () => {
       let text = prePrompt + "\n\n";
-
       if (activeProfile.includeFileTree && vscode.workspace.workspaceFolders) {
         let fileTreeText = "";
         for (const folder of vscode.workspace.workspaceFolders) {
           const workspacePath = folder.uri.fsPath;
           const includePaths = new Set<string>();
-          // For each selected file under this workspace, add all its ancestors.
-          for (const filePath of Object.keys(activeProfile.selectedFiles)) {
-            if (filePath.startsWith(workspacePath)) {
-              let current = path.dirname(filePath);
+          for (const fileKey of Object.keys(activeProfile.selectedFiles)) {
+            const absPath = path.isAbsolute(fileKey)
+              ? fileKey
+              : path.join(workspacePath, fileKey);
+            if (absPath.startsWith(workspacePath)) {
+              let current = path.dirname(absPath);
               while (current.startsWith(workspacePath)) {
                 includePaths.add(current);
                 const parent = path.dirname(current);
@@ -325,7 +413,7 @@ export function activate(context: vscode.ExtensionContext) {
             }
           }
           fileTreeText += `Project: ${folder.name}\n`;
-          fileTreeText += buildMinimalFileTree(
+          fileTreeText += await buildMinimalFileTreeAsync(
             workspacePath,
             includePaths,
             "  "
@@ -335,22 +423,33 @@ export function activate(context: vscode.ExtensionContext) {
           "Here is the structure of the project as it relates to the file contents below:\n";
         text += fileTreeText + "\n";
       }
-
-      const selectedPaths = Object.keys(activeProfile.selectedFiles);
-      for (let filePath of selectedPaths) {
+      const selectedKeys = Object.keys(activeProfile.selectedFiles);
+      for (const fileKey of selectedKeys) {
+        let absPath = fileKey;
+        if (
+          !path.isAbsolute(fileKey) &&
+          vscode.workspace.workspaceFolders &&
+          vscode.workspace.workspaceFolders.length > 0
+        ) {
+          absPath = path.join(
+            vscode.workspace.workspaceFolders[0].uri.fsPath,
+            fileKey
+          );
+        }
         try {
-          if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
-            let content = fs.readFileSync(filePath, "utf8");
-            let workspaceFolder = vscode.workspace.getWorkspaceFolder(
-              vscode.Uri.file(filePath)
+          const stat = await fs.promises.stat(absPath);
+          if (stat.isFile()) {
+            const content = await fs.promises.readFile(absPath, "utf8");
+            const workspaceFolder = vscode.workspace.getWorkspaceFolder(
+              vscode.Uri.file(absPath)
             );
-            let relPath = workspaceFolder
-              ? path.relative(workspaceFolder.uri.fsPath, filePath)
-              : filePath;
+            const relPath = workspaceFolder
+              ? path.relative(workspaceFolder.uri.fsPath, absPath)
+              : absPath;
             text += `----- ${relPath} -----\n${content}\n\n`;
           }
         } catch (error) {
-          console.error("Error reading file: " + filePath, error);
+          console.error("Error reading file: " + absPath, error);
         }
       }
       await vscode.env.clipboard.writeText(text);
@@ -366,8 +465,16 @@ export function activate(context: vscode.ExtensionContext) {
       "extension.selectAllInFolder",
       async (node: FileNode) => {
         const folderPath = node.resourceUri.fsPath;
-        const files = getAllFiles(folderPath);
-        files.forEach((file) => (activeProfile.selectedFiles[file] = true));
+        const files = await getAllFilesAsync(folderPath);
+        for (const file of files) {
+          const workspaceFolder = vscode.workspace.getWorkspaceFolder(
+            vscode.Uri.file(file)
+          );
+          const relPath = workspaceFolder
+            ? path.relative(workspaceFolder.uri.fsPath, file)
+            : file;
+          activeProfile.selectedFiles[relPath] = true;
+        }
         config.profiles[config.activeProfile] = activeProfile;
         saveConfig();
         refreshViews();
@@ -380,10 +487,16 @@ export function activate(context: vscode.ExtensionContext) {
       "extension.unselectAllInFolder",
       async (node: FileNode) => {
         const folderPath = node.resourceUri.fsPath;
-        const files = getAllFiles(folderPath);
-        files.forEach((file) => {
-          delete activeProfile.selectedFiles[file];
-        });
+        const files = await getAllFilesAsync(folderPath);
+        for (const file of files) {
+          const workspaceFolder = vscode.workspace.getWorkspaceFolder(
+            vscode.Uri.file(file)
+          );
+          const relPath = workspaceFolder
+            ? path.relative(workspaceFolder.uri.fsPath, file)
+            : file;
+          delete activeProfile.selectedFiles[relPath];
+        }
         config.profiles[config.activeProfile] = activeProfile;
         saveConfig();
         refreshViews();
@@ -404,11 +517,8 @@ export function activate(context: vscode.ExtensionContext) {
         };
         config.activeProfile = profileName;
         activeProfile = config.profiles[profileName];
-
-        // Update providers to use the new profile's data:
         projectProvider.selectedFiles = activeProfile.selectedFiles;
         selectedProvider.selectedFiles = activeProfile.selectedFiles;
-
         saveConfig();
         refreshViews();
         vscode.window.showInformationMessage(
@@ -456,11 +566,8 @@ export function activate(context: vscode.ExtensionContext) {
         config.activeProfile = selected;
         activeProfile = config.profiles[selected];
         prePrompt = activeProfile.prePrompt;
-
-        // Update providers to point to the new profile’s selectedFiles:
         projectProvider.selectedFiles = activeProfile.selectedFiles;
         selectedProvider.selectedFiles = activeProfile.selectedFiles;
-
         saveConfig();
         updateToggleStatusBar();
         refreshViews();
@@ -533,42 +640,13 @@ function getHowToHtml(): string {
 
 export function deactivate() {}
 
-// Helper: Build a minimal file tree string.
-// It lists folder and file names with indentation.
-// Always lists root items, but only expands a directory's children if its fullPath is in includePaths.
-function buildMinimalFileTree(
+// Async helper to build a minimal file tree.
+async function buildMinimalFileTreeAsyncWrapper(
   dir: string,
   includePaths: Set<string>,
   indent: string
-): string {
-  let result = "";
-  const excluded = new Set(["node_modules", ".git", "dist", "build"]);
-  let items: string[];
-  try {
-    items = fs.readdirSync(dir);
-  } catch (e) {
-    return result;
-  }
-  items.sort((a, b) => a.localeCompare(b));
-  for (const item of items) {
-    const fullPath = path.join(dir, item);
-    let stat;
-    try {
-      stat = fs.statSync(fullPath);
-    } catch (e) {
-      continue;
-    }
-    if (stat.isDirectory()) {
-      result += indent + item + "/\n";
-      // Only expand this directory if it is an ancestor of a selected file.
-      if (includePaths.has(fullPath)) {
-        result += buildMinimalFileTree(fullPath, includePaths, indent + "  ");
-      }
-    } else {
-      result += indent + item + "\n";
-    }
-  }
-  return result;
+): Promise<string> {
+  return await buildMinimalFileTreeAsync(dir, includePaths, indent);
 }
 
 class ProjectContextProvider implements vscode.TreeDataProvider<FileNode> {
@@ -590,13 +668,13 @@ class ProjectContextProvider implements vscode.TreeDataProvider<FileNode> {
     return element;
   }
 
-  getChildren(element?: FileNode): Thenable<FileNode[]> {
+  async getChildren(element?: FileNode): Promise<FileNode[]> {
     if (!vscode.workspace.workspaceFolders) {
       vscode.window.showInformationMessage("No workspace folder open");
-      return Promise.resolve([]);
+      return [];
     }
     if (element) {
-      return Promise.resolve(this.readDir(element.resourceUri.fsPath));
+      return await this.readDirAsync(element.resourceUri.fsPath);
     } else {
       let roots: FileNode[] = [];
       for (const folder of vscode.workspace.workspaceFolders) {
@@ -604,33 +682,34 @@ class ProjectContextProvider implements vscode.TreeDataProvider<FileNode> {
           new FileNode(folder.uri, folder.name, true, this.selectedFiles)
         );
       }
-      return Promise.resolve(roots);
+      return roots;
     }
   }
 
-  private readDir(dir: string): FileNode[] {
+  private async readDirAsync(dir: string): Promise<FileNode[]> {
     let items: FileNode[] = [];
+    let entries: string[];
     try {
-      const entries = fs.readdirSync(dir);
-      for (let entry of entries) {
-        const fullPath = path.join(dir, entry);
-        try {
-          const stat = fs.statSync(fullPath);
-          const isDirectory = stat.isDirectory();
-          items.push(
-            new FileNode(
-              vscode.Uri.file(fullPath),
-              entry,
-              isDirectory,
-              this.selectedFiles
-            )
-          );
-        } catch (err) {
-          console.error("Error reading stats for: " + fullPath, err);
-        }
-      }
+      entries = await fs.promises.readdir(dir);
     } catch (error) {
       console.error("Error reading directory: " + dir, error);
+      return items;
+    }
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry);
+      try {
+        const stat = await fs.promises.stat(fullPath);
+        items.push(
+          new FileNode(
+            vscode.Uri.file(fullPath),
+            entry,
+            stat.isDirectory(),
+            this.selectedFiles
+          )
+        );
+      } catch (err) {
+        console.error("Error reading stats for: " + fullPath, err);
+      }
     }
     items.sort((a, b) => {
       if (a.isDirectory && !b.isDirectory) return -1;
@@ -669,8 +748,14 @@ class FileNode extends vscode.TreeItem {
     }
   }
   updateLabel() {
+    const workspaceFolder = vscode.workspace.getWorkspaceFolder(
+      this.resourceUri
+    );
+    const fileKey = workspaceFolder
+      ? path.relative(workspaceFolder.uri.fsPath, this.resourceUri.fsPath)
+      : this.resourceUri.fsPath;
     this.label = path.basename(this.resourceUri.fsPath);
-    this.description = this.selectedFiles[this.resourceUri.fsPath] ? "[x]" : "";
+    this.description = this.selectedFiles[fileKey] ? "[x]" : "";
   }
 }
 
@@ -695,19 +780,22 @@ class SelectedFilesProvider
     return element;
   }
 
-  getChildren(): Thenable<SelectedFileNode[]> {
+  async getChildren(): Promise<SelectedFileNode[]> {
     let nodes: SelectedFileNode[] = [];
     const filePaths = Object.keys(this.selectedFiles);
-    for (let filePath of filePaths) {
-      let workspaceFolder = vscode.workspace.workspaceFolders
+    const workspaceFolderPath =
+      vscode.workspace.workspaceFolders &&
+      vscode.workspace.workspaceFolders.length > 0
         ? vscode.workspace.workspaceFolders[0].uri.fsPath
         : "";
-      let relPath = workspaceFolder
-        ? path.relative(workspaceFolder, filePath)
-        : filePath;
-      nodes.push(new SelectedFileNode(filePath, relPath));
+    for (const filePath of filePaths) {
+      let displayPath = filePath;
+      if (path.isAbsolute(filePath) && workspaceFolderPath) {
+        displayPath = path.relative(workspaceFolderPath, filePath);
+      }
+      nodes.push(new SelectedFileNode(filePath, displayPath));
     }
-    return Promise.resolve(nodes);
+    return nodes;
   }
 }
 

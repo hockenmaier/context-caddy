@@ -2,22 +2,37 @@
   "profiles": {
     "default": {
       "selectedFiles": {
-        "g:\\projects\\context-caddy\\package.json": true,
-        "g:\\projects\\context-caddy\\tsconfig.json": true,
-        "g:\\projects\\context-caddy\\src\\extension.ts": true
+        "package.json": true,
+        "src\\extension.ts": true,
+        "tsconfig.json": true
       },
-      "prePrompt": "This project is a vscode extension that lets the user select multiple files and set a pre-prompt, and provides a copy button to instantly copy all of those file names and contents onto the clipboard to use with a web based AI tool like chatGPT.  Read the instructions in extension.ts for more details."
+      "prePrompt": "This project is a vscode extension that lets the user select multiple files and set a pre-prompt, and provides a copy button to instantly copy all of those file names and contents onto the clipboard to use with a web based AI tool like chatGPT.  Read the instructions in extension.ts for more details.",
+      "includeFileTree": false
     },
     "test1": {
       "selectedFiles": {
-        "g:\\projects\\context-caddy\\package.json": true
+        "package.json": true
       },
-      "prePrompt": ""
+      "prePrompt": "",
+      "includeFileTree": false
     },
     "test2": {
-      "selectedFiles": {},
-      "prePrompt": ""
+      "selectedFiles": {
+        "tsconfig.json": true,
+        "README.md": true,
+        "package.json": true
+      },
+      "prePrompt": "",
+      "includeFileTree": true
+    },
+    "test4": {
+      "selectedFiles": {
+        "package.json": true,
+        "tsconfig.json": true
+      },
+      "prePrompt": "test 4 prepp",
+      "includeFileTree": false
     }
   },
-  "activeProfile": "default"
+  "activeProfile": "test4"
 }
